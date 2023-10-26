@@ -7,7 +7,13 @@ use std::{
 use serde::{de::Error, Deserialize, Serialize};
 use serde_untagged::UntaggedEnumVisitor;
 
-/// TODO docs
+/// A field that deserializes either as `T` or as `String`
+/// with all environment variables expanded via `shellexpand`.
+///
+/// Requires `T` to implement the `FromStr` trait
+/// for deserialization from String after environment variables expansion.
+///
+/// Works nicely with `Option` and `#[serde(default)]`.
 pub struct EnvField<T>(T);
 
 impl<T> EnvField<T> {
