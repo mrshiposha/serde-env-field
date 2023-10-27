@@ -14,4 +14,5 @@ shellexpand = "3.1.0"
 
 [dev-dependencies]
 derive_more = "0.99.17"
+indoc = "2.0.4"
 toml = "0.8.4"

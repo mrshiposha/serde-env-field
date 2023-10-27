@@ -4,8 +4,11 @@ use std::{
     str::FromStr,
 };
 
-use serde::{de::Error, Deserialize, Serialize};
-use serde_untagged::UntaggedEnumVisitor;
+use serde::{
+    de::{self, Error},
+    Deserialize, Serialize,
+};
+use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
 
 /// A field that deserializes either as `T` or as `String`
 /// with all environment variables expanded via `shellexpand`.
@@ -14,11 +17,27 @@ use serde_untagged::UntaggedEnumVisitor;
 /// for deserialization from String after environment variables expansion.
 ///
 /// Works nicely with `Option` and `#[serde(default)]`.
+#[repr(transparent)]
+#[derive(Serialize)]
+#[serde(transparent)]
 pub struct EnvField<T>(T);
 
 impl<T> EnvField<T> {
     pub fn into_inner(self) -> T {
         self.0
+    }
+}
+
+impl<T> EnvField<T>
+where
+    T: FromStr,
+    <T as FromStr>::Err: fmt::Display,
+{
+    fn env_expand_and_parse(str_data: &str) -> Result<Self, UntaggedError> {
+        match shellexpand::env(&str_data) {
+            Ok(expanded) => expanded.parse().map(Self).map_err(Error::custom),
+            Err(err) => Err(Error::custom(err)),
+        }
     }
 }
 
@@ -28,13 +47,10 @@ impl<T> From<T> for EnvField<T> {
     }
 }
 
-impl<T: Serialize> Serialize for EnvField<T> {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        self.0.serialize(serializer)
-    }
+macro_rules! deserialize_value {
+    ($de:ident) => {
+        |v| T::deserialize(de::value::$de::new(v)).map(Self)
+    };
 }
 
 impl<'de, T> Deserialize<'de> for EnvField<T>
@@ -47,10 +63,25 @@ where
         D: serde::Deserializer<'de>,
     {
         UntaggedEnumVisitor::new()
-            .string(|str_data| match shellexpand::env(&str_data) {
-                Ok(expanded) => expanded.parse().map(Self).map_err(Error::custom),
-                Err(err) => Err(Error::custom(err)),
-            })
+            .string(Self::env_expand_and_parse)
+            .borrowed_str(Self::env_expand_and_parse)
+            .bool(deserialize_value!(BoolDeserializer))
+            .i8(deserialize_value!(I8Deserializer))
+            .i16(deserialize_value!(I16Deserializer))
+            .i32(deserialize_value!(I32Deserializer))
+            .i64(deserialize_value!(I64Deserializer))
+            .i128(deserialize_value!(I128Deserializer))
+            .u8(deserialize_value!(U8Deserializer))
+            .u16(deserialize_value!(U16Deserializer))
+            .u32(deserialize_value!(U32Deserializer))
+            .u64(deserialize_value!(U64Deserializer))
+            .u128(deserialize_value!(U128Deserializer))
+            .f32(deserialize_value!(F32Deserializer))
+            .f64(deserialize_value!(F64Deserializer))
+            .char(deserialize_value!(CharDeserializer))
+            .bytes(deserialize_value!(BytesDeserializer))
+            .borrowed_bytes(deserialize_value!(BorrowedBytesDeserializer))
+            .seq(|seq| seq.deserialize().map(Self))
             .map(|map| map.deserialize().map(Self))
             .deserialize(deserializer)
     }

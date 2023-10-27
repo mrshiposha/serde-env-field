@@ -1,131 +1,426 @@
 use std::{assert_eq, env};
 
 use derive_more::FromStr;
-use serde::{Deserialize, Serialize};
+use indoc::indoc;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use serde_env_field::EnvField;
 
-#[derive(Serialize, Deserialize)]
-struct Test {
-    name: EnvField<String>,
-    size: EnvField<usize>,
+fn de_se_de_test<T: Serialize + DeserializeOwned>(
+    source_text: &'static str,
+    check_value: impl Fn(&T),
+    expected_serialized: &'static str,
+) {
+    let deserialized: T = toml::from_str(source_text).unwrap();
+    check_value(&deserialized);
 
-    optional_description: Option<EnvField<String>>,
+    let serialized = toml::to_string_pretty(&deserialized).unwrap();
+    assert_eq!(serialized, expected_serialized);
 
-    #[serde(default)]
-    number_with_default: EnvField<TheAnswerByDefault>,
-
-    tags: Vec<EnvField<String>>,
-}
-
-#[derive(Serialize, Deserialize, FromStr)]
-pub struct TheAnswerByDefault {
-    the_value: i32,
-}
-impl Default for TheAnswerByDefault {
-    fn default() -> Self {
-        Self { the_value: 42 }
-    }
+    let deserialized_again: T = toml::from_str(&serialized).unwrap();
+    check_value(&deserialized_again);
 }
 
 #[test]
-fn test_env_field() {
-    let source = r#"
-        name = "${NAME:-Default Entry}"
-        size = "${SIZE:-0}"
-        tags = [ "$EXAMPLE_TAG", "another-tag" ]
-    "#;
+fn test_required_fields() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        name: EnvField<String>,
+        size: EnvField<usize>,
+    }
 
-    env::set_var("EXAMPLE_TAG", "env-tag");
-
-    let deserialized: Test = toml::from_str(source).unwrap();
-    assert_eq!(&deserialized.name, "Default Entry");
-    assert_eq!(deserialized.size, 0);
-    assert!(deserialized.optional_description.is_none());
-    assert_eq!(deserialized.number_with_default.the_value, 42);
-    assert!(deserialized
-        .tags
-        .iter()
-        .eq(["env-tag", "another-tag"].into_iter()));
-
-    let serialized = toml::to_string_pretty(&deserialized).unwrap();
-    assert_eq!(
-        serialized,
-        r#"name = "Default Entry"
-size = 0
-tags = [
-    "env-tag",
-    "another-tag",
-]
-
-[number_with_default]
-the_value = 42
-"#
+    de_se_de_test::<Test>(
+        r#"
+            name = "${NAME_test_required:-Default Entry}"
+            size = "${SIZE:-0}"
+        "#,
+        |de| {
+            assert_eq!(&de.name, "Default Entry");
+            assert_eq!(de.size, 0);
+        },
+        indoc! {r#"
+            name = "Default Entry"
+            size = 0
+        "#},
     );
 
-    env::set_var("NAME", "Custom Name");
-    env::set_var("SIZE", "1023");
-    env::set_var("EXAMPLE_TAG", "env-altered-tag");
-
-    let deserialized: Test = toml::from_str(source).unwrap();
-    assert_eq!(&deserialized.name, "Custom Name");
-    assert_eq!(deserialized.size, 1023);
-    assert!(deserialized.optional_description.is_none());
-    assert_eq!(deserialized.number_with_default.the_value, 42);
-    assert!(deserialized
-        .tags
-        .iter()
-        .eq(["env-altered-tag", "another-tag"].into_iter()));
-
-    let serialized = toml::to_string_pretty(&deserialized).unwrap();
-    assert_eq!(
-        serialized,
-        r#"name = "Custom Name"
-size = 1023
-tags = [
-    "env-altered-tag",
-    "another-tag",
-]
-
-[number_with_default]
-the_value = 42
-"#
+    env::set_var("NAME_test_required", "Example Name");
+    de_se_de_test::<Test>(
+        r#"
+            name = "${NAME_test_required:-Default Entry}"
+            size = 44
+        "#,
+        |de| {
+            assert_eq!(&de.name, "Example Name");
+            assert_eq!(de.size, 44);
+        },
+        indoc! {r#"
+            name = "Example Name"
+            size = 44
+        "#},
     );
 
-    let source = r#"
-        name = "${NAME:-Default Entry}"
-        size = "${SIZE:-0}"
-        tags = [ "$EXAMPLE_TAG", "another-tag" ]
-
-        optional_description = "The most default entry ever"
-        number_with_default.the_value = 112
-    "#;
-
-    let deserialized: Test = toml::from_str(source).unwrap();
-    assert_eq!(&deserialized.name, "Custom Name");
-    assert_eq!(deserialized.size, 1023);
-    assert_eq!(
-        deserialized.optional_description.as_ref().unwrap(),
-        "The most default entry ever"
+    de_se_de_test::<Test>(
+        r#"
+            name = "Not-Var"
+            size = 42
+        "#,
+        |de| {
+            assert_eq!(&de.name, "Not-Var");
+            assert_eq!(de.size, 42);
+        },
+        indoc! {r#"
+            name = "Not-Var"
+            size = 42
+        "#},
     );
-    assert_eq!(deserialized.number_with_default.the_value, 112);
-    assert!(deserialized
-        .tags
-        .iter()
-        .eq(["env-altered-tag", "another-tag"].into_iter()));
 
-    let serialized = toml::to_string_pretty(&deserialized).unwrap();
-    assert_eq!(
-        serialized,
-        r#"name = "Custom Name"
-size = 1023
-optional_description = "The most default entry ever"
-tags = [
-    "env-altered-tag",
-    "another-tag",
-]
+    env::set_var("SIZE_test_required", "1023");
+    de_se_de_test::<Test>(
+        r#"
+            name = "Not-Var"
+            size = "$SIZE_test_required"
+        "#,
+        |de| {
+            assert_eq!(&de.name, "Not-Var");
+            assert_eq!(de.size, 1023);
+        },
+        indoc! {r#"
+            name = "Not-Var"
+            size = 1023
+        "#},
+    );
+}
 
-[number_with_default]
-the_value = 112
-"#
+#[test]
+fn test_optional_fields() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        name: Option<EnvField<String>>,
+        size: Option<EnvField<usize>>,
+    }
+
+    de_se_de_test::<Test>(
+        "",
+        |de| {
+            assert!(&de.name.is_none());
+            assert!(de.size.is_none());
+        },
+        "",
+    );
+
+    env::set_var("NAME_test_optional", "Name from Env");
+    de_se_de_test::<Test>(
+        r#"
+            name = "$NAME_test_optional"
+        "#,
+        |de| {
+            assert_eq!(de.name.as_ref().unwrap(), "Name from Env");
+            assert!(de.size.is_none());
+        },
+        indoc! {r#"
+            name = "Name from Env"
+        "#},
+    );
+
+    de_se_de_test::<Test>(
+        r#"
+            size = 514
+        "#,
+        |de| {
+            assert!(de.name.is_none());
+            assert_eq!(de.size.unwrap(), 514);
+        },
+        indoc! {r#"
+            size = 514
+        "#},
+    );
+
+    de_se_de_test::<Test>(
+        r#"
+            name = "Not-Var"
+            size = "${SIZE_test_optional:-12}"
+        "#,
+        |de| {
+            assert_eq!(de.name.as_ref().unwrap(), "Not-Var");
+            assert_eq!(de.size.unwrap(), 12);
+        },
+        indoc! {r#"
+            name = "Not-Var"
+            size = 12
+        "#},
+    );
+}
+
+#[test]
+fn test_default_fields() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        #[serde(default)]
+        number_with_default: EnvField<TheAnswerByDefault>,
+    }
+
+    #[derive(Serialize, Deserialize, FromStr)]
+    #[serde(transparent)]
+    pub struct TheAnswerByDefault(i32);
+    impl Default for TheAnswerByDefault {
+        fn default() -> Self {
+            Self(42)
+        }
+    }
+
+    de_se_de_test::<Test>(
+        "",
+        |de| {
+            assert_eq!(de.number_with_default.0, 42);
+        },
+        indoc! {r#"
+            number_with_default = 42
+        "#},
+    );
+
+    de_se_de_test::<Test>(
+        "number_with_default = 512",
+        |de| {
+            assert_eq!(de.number_with_default.0, 512);
+        },
+        indoc! {r#"
+            number_with_default = 512
+        "#},
+    );
+
+    de_se_de_test::<Test>(
+        r#"number_with_default = "${NUMBER_test_default:-144}""#,
+        |de| {
+            assert_eq!(de.number_with_default.0, 144);
+        },
+        indoc! {r#"
+            number_with_default = 144
+        "#},
+    );
+
+    env::set_var("NUMBER_test_default", "777");
+    de_se_de_test::<Test>(
+        r#"number_with_default = "${NUMBER_test_default:-144}""#,
+        |de| {
+            assert_eq!(de.number_with_default.0, 777);
+        },
+        indoc! {r#"
+            number_with_default = 777
+        "#},
+    );
+}
+
+#[test]
+fn test_seq_fields() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        numbers: Vec<EnvField<i32>>,
+        strings: Vec<EnvField<String>>,
+    }
+
+    env::set_var("NUMBER1_test_seq", "-1024");
+    env::set_var("TWO_test_seq", "Str from Env");
+    de_se_de_test::<Test>(
+        r#"
+            numbers = [
+                42,
+                "$NUMBER1_test_seq",
+                "${NUMBER2_test_seq:-48}",
+                -512
+            ]
+            strings = [
+                "ONE",
+                "$TWO_test_seq"
+            ]
+        "#,
+        |de| {
+            assert!(de.numbers.iter().eq([42, -1024, 48, -512,].iter()));
+
+            assert!(de
+                .strings
+                .iter()
+                .map(|e| e.as_str())
+                .eq(["ONE", "Str from Env",].into_iter()));
+        },
+        indoc! {r#"
+            numbers = [
+                42,
+                -1024,
+                48,
+                -512,
+            ]
+            strings = [
+                "ONE",
+                "Str from Env",
+            ]
+        "#},
+    );
+
+    env::set_var("NUMBER1_test_seq", "111");
+    env::set_var("NUMBER2_test_seq", "-64");
+    de_se_de_test::<Test>(
+        r#"
+            numbers = [
+                42,
+                "$NUMBER1_test_seq",
+                "${NUMBER2_test_seq:-48}",
+                -512
+            ]
+            strings = [
+                "Another",
+                "$TWO_test_seq"
+            ]
+        "#,
+        |de| {
+            assert!(de.numbers.iter().eq([42, 111, -64, -512,].iter()));
+
+            assert!(de
+                .strings
+                .iter()
+                .map(|e| e.as_str())
+                .eq(["Another", "Str from Env",].into_iter()));
+        },
+        indoc! {r#"
+            numbers = [
+                42,
+                111,
+                -64,
+                -512,
+            ]
+            strings = [
+                "Another",
+                "Str from Env",
+            ]
+        "#},
+    );
+}
+
+#[test]
+fn test_primitives() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        b: EnvField<bool>,
+        c: EnvField<char>,
+        s: EnvField<String>,
+        ni8: EnvField<i8>,
+        ni16: EnvField<i16>,
+        ni32: EnvField<i32>,
+        ni64: EnvField<i64>,
+        nu8: EnvField<u8>,
+        nu16: EnvField<u16>,
+        nu32: EnvField<u32>,
+        nu64: EnvField<u64>,
+        nf32: EnvField<f32>,
+        nf64: EnvField<f64>,
+    }
+
+    de_se_de_test::<Test>(
+        r#"
+            b = true
+            c = 'A'
+            s = "Hello"
+            ni8 = -128
+            ni16 = -1024
+            ni32 = 0x20000
+            ni64 = 0x2000000
+            nu8 = 128
+            nu16 = 1024
+            nu32 = 0x20000
+            nu64 = 0x2000000
+            nf32 = 42
+            nf64 = 64.0
+        "#,
+        |de| {
+            assert_eq!(de.b, true);
+            assert_eq!(de.c, 'A');
+            assert_eq!(&de.s, "Hello");
+            assert_eq!(de.ni8, -128);
+            assert_eq!(de.ni16, -1024);
+            assert_eq!(de.ni32, 0x20000);
+            assert_eq!(de.ni64, 0x2000000);
+            assert_eq!(de.nu8, 128);
+            assert_eq!(de.nu16, 1024);
+            assert_eq!(de.nu32, 0x20000);
+            assert_eq!(de.nu64, 0x2000000);
+            assert_eq!(de.nf32, 42.0);
+            assert_eq!(de.nf64, 64.0);
+        },
+        indoc! {r#"
+            b = true
+            c = "A"
+            s = "Hello"
+            ni8 = -128
+            ni16 = -1024
+            ni32 = 131072
+            ni64 = 33554432
+            nu8 = 128
+            nu16 = 1024
+            nu32 = 131072
+            nu64 = 33554432
+            nf32 = 42.0
+            nf64 = 64.0
+        "#},
+    );
+
+    env::set_var("BOOL_test_primitive", "false");
+    env::set_var("CHAR_test_primitive", "S");
+    env::set_var("STR_test_primitive", "Goodbye");
+    env::set_var("I8_test_primitive", "-100");
+    env::set_var("I16_test_primitive", "-20000");
+    env::set_var("I32_test_primitive", "-3000000");
+    env::set_var("I64_test_primitive", "-4000000000");
+    env::set_var("U8_test_primitive", "100");
+    env::set_var("U16_test_primitive", "20000");
+    env::set_var("U32_test_primitive", "3000000");
+    env::set_var("U64_test_primitive", "4000000000");
+    env::set_var("F32_test_primitive", "-114.0");
+    env::set_var("F64_test_primitive", "115");
+
+    de_se_de_test::<Test>(
+        r#"
+            b = "$BOOL_test_primitive"
+            c = '$CHAR_test_primitive'
+            s = "$STR_test_primitive"
+            ni8 = "$I8_test_primitive"
+            ni16 = "$I16_test_primitive"
+            ni32 = "$I32_test_primitive"
+            ni64 = "$I64_test_primitive"
+            nu8 = "$U8_test_primitive"
+            nu16 = "$U16_test_primitive"
+            nu32 = "$U32_test_primitive"
+            nu64 = "$U64_test_primitive"
+            nf32 = "$F32_test_primitive"
+            nf64 = "$F64_test_primitive"
+        "#,
+        |de| {
+            assert_eq!(de.b, false);
+            assert_eq!(de.c, 'S');
+            assert_eq!(&de.s, "Goodbye");
+            assert_eq!(de.ni8, -100);
+            assert_eq!(de.ni16, -20000);
+            assert_eq!(de.ni32, -3000000);
+            assert_eq!(de.ni64, -4000000000);
+            assert_eq!(de.nu8, 100);
+            assert_eq!(de.nu16, 20000);
+            assert_eq!(de.nu32, 3000000);
+            assert_eq!(de.nu64, 4000000000);
+            assert_eq!(de.nf32, -114.0);
+            assert_eq!(de.nf64, 115.0);
+        },
+        indoc! {r#"
+            b = false
+            c = "S"
+            s = "Goodbye"
+            ni8 = -100
+            ni16 = -20000
+            ni32 = -3000000
+            ni64 = -4000000000
+            nu8 = 100
+            nu16 = 20000
+            nu32 = 3000000
+            nu64 = 4000000000
+            nf32 = -114.0
+            nf64 = 115.0
+        "#},
     );
 }
