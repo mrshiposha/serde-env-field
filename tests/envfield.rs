@@ -1,4 +1,4 @@
-use std::{assert_eq, env};
+use std::{assert_eq, env, str::FromStr};
 
 use derive_more::FromStr;
 use indoc::indoc;
@@ -291,6 +291,72 @@ fn test_seq_fields() {
                 "Another",
                 "Str from Env",
             ]
+        "#},
+    );
+}
+
+#[test]
+fn test_map_fields() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        map: EnvField<Map>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct Map {
+        n: i32,
+        s: String,
+        b: bool,
+    }
+
+    impl FromStr for Map {
+        type Err = &'static str;
+
+        fn from_str(s: &str) -> Result<Self, Self::Err> {
+            let mut segments = s.split(';');
+
+            let n = segments.next().unwrap().parse().unwrap();
+            let s = segments.next().unwrap().to_string();
+            let b = segments.next().unwrap().parse().unwrap();
+
+            Ok(Self { n, s, b })
+        }
+    }
+
+    de_se_de_test::<Test>(
+        r#"
+            map.n = 44
+            map.s = "Hello World"
+            map.b = false
+        "#,
+        |de| {
+            assert_eq!(de.map.n, 44);
+            assert_eq!(&de.map.s, "Hello World");
+            assert_eq!(de.map.b, false);
+        },
+        indoc! {r#"
+            [map]
+            n = 44
+            s = "Hello World"
+            b = false
+        "#},
+    );
+
+    env::set_var("MAP_test_map", "1111;Test Env String;true");
+    de_se_de_test::<Test>(
+        r#"
+            map = "$MAP_test_map"
+        "#,
+        |de| {
+            assert_eq!(de.map.n, 1111);
+            assert_eq!(&de.map.s, "Test Env String");
+            assert_eq!(de.map.b, true);
+        },
+        indoc! {r#"
+            [map]
+            n = 1111
+            s = "Test Env String"
+            b = true
         "#},
     );
 }
