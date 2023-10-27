@@ -13,6 +13,8 @@ struct Test {
 
     #[serde(default)]
     number_with_default: EnvField<TheAnswerByDefault>,
+
+    tags: Vec<EnvField<String>>,
 }
 
 #[derive(Serialize, Deserialize, FromStr)]
@@ -30,19 +32,30 @@ fn test_env_field() {
     let source = r#"
         name = "${NAME:-Default Entry}"
         size = "${SIZE:-0}"
+        tags = [ "$EXAMPLE_TAG", "another-tag" ]
     "#;
+
+    env::set_var("EXAMPLE_TAG", "env-tag");
 
     let deserialized: Test = toml::from_str(source).unwrap();
     assert_eq!(&deserialized.name, "Default Entry");
     assert_eq!(deserialized.size, 0);
     assert!(deserialized.optional_description.is_none());
     assert_eq!(deserialized.number_with_default.the_value, 42);
+    assert!(deserialized
+        .tags
+        .iter()
+        .eq(["env-tag", "another-tag"].into_iter()));
 
     let serialized = toml::to_string_pretty(&deserialized).unwrap();
     assert_eq!(
         serialized,
         r#"name = "Default Entry"
 size = 0
+tags = [
+    "env-tag",
+    "another-tag",
+]
 
 [number_with_default]
 the_value = 42
@@ -51,18 +64,27 @@ the_value = 42
 
     env::set_var("NAME", "Custom Name");
     env::set_var("SIZE", "1023");
+    env::set_var("EXAMPLE_TAG", "env-altered-tag");
 
     let deserialized: Test = toml::from_str(source).unwrap();
     assert_eq!(&deserialized.name, "Custom Name");
     assert_eq!(deserialized.size, 1023);
     assert!(deserialized.optional_description.is_none());
     assert_eq!(deserialized.number_with_default.the_value, 42);
+    assert!(deserialized
+        .tags
+        .iter()
+        .eq(["env-altered-tag", "another-tag"].into_iter()));
 
     let serialized = toml::to_string_pretty(&deserialized).unwrap();
     assert_eq!(
         serialized,
         r#"name = "Custom Name"
 size = 1023
+tags = [
+    "env-altered-tag",
+    "another-tag",
+]
 
 [number_with_default]
 the_value = 42
@@ -72,6 +94,7 @@ the_value = 42
     let source = r#"
         name = "${NAME:-Default Entry}"
         size = "${SIZE:-0}"
+        tags = [ "$EXAMPLE_TAG", "another-tag" ]
 
         optional_description = "The most default entry ever"
         number_with_default.the_value = 112
@@ -85,6 +108,10 @@ the_value = 42
         "The most default entry ever"
     );
     assert_eq!(deserialized.number_with_default.the_value, 112);
+    assert!(deserialized
+        .tags
+        .iter()
+        .eq(["env-altered-tag", "another-tag"].into_iter()));
 
     let serialized = toml::to_string_pretty(&deserialized).unwrap();
     assert_eq!(
@@ -92,6 +119,10 @@ the_value = 42
         r#"name = "Custom Name"
 size = 1023
 optional_description = "The most default entry ever"
+tags = [
+    "env-altered-tag",
+    "another-tag",
+]
 
 [number_with_default]
 the_value = 112
