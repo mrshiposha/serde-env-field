@@ -11,4 +11,4 @@ to construct the `T` type using the `FromStr` trait.
 If the supplied data was not a string, the `EnvField`
 will attempt to deserialize the `T` type directly from the data.
 
-See the [EnvField](https://docs.rs/serde_env_field/struct.EnvField.html) documentation for details.
+See the [EnvField](https://docs.rs/serde-env-field/latest/serde_env_field/struct.EnvField.html) documentation for details.
