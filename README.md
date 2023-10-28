@@ -16,9 +16,6 @@ The `EnvField` works nicely with `Option`, `Vec`, and `#[serde(default)]`.
 #### Example
 
 ```rust
-# use serde::{Serialize, Deserialize};
-# use serde_env_field::EnvField;
-
 #[derive(Serialize, Deserialize)]
 struct Example {
     name: EnvField<String>,
