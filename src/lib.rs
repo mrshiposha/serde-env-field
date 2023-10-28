@@ -1,3 +1,15 @@
+//! This crate provides the [`EnvField<T>`] type capable of deserializing the `T` type
+//! from a string with environment variables if the `T` implements the `FromStr` trait.
+//!
+//! During deserialization, the `EnvField` will try to deserialize the data as a string and expand all
+//! the environment variables. After the expansion, the resulting string will be used
+//! to construct the `T` type using the `FromStr` trait.
+//!
+//! If the supplied data was not a string, the `EnvField`
+//! will attempt to deserialize the `T` type directly from the data.
+//!
+//! See the [`EnvField`] description for details.
+
 use std::{
     fmt::{self, Debug},
     ops::*,
@@ -11,18 +23,217 @@ use serde::{
 use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
 
 /// A field that deserializes either as `T` or as `String`
-/// with all environment variables expanded via `shellexpand`.
+/// with all environment variables expanded via the [`shellexpand`] crate.
 ///
 /// Requires `T` to implement the `FromStr` trait
 /// for deserialization from String after environment variables expansion.
 ///
-/// Works nicely with `Option` and `#[serde(default)]`.
+/// Works nicely with `Option`, `Vec`, and `#[serde(default)]`.
+///
+/// ### Examples
+///
+/// #### Basic
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::EnvField;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     name: EnvField<String>,
+///     size: EnvField<usize>,
+///     num: EnvField<i32>,
+/// }
+///
+/// std::env::set_var("SIZE", "100");
+///
+/// let de: Example = toml::from_str(r#"
+///     name = "${NAME:-Default Name}"
+///
+///     size = "$SIZE"
+///
+///     num = 42
+/// "#).unwrap();
+///
+/// assert_eq!(&de.name, "Default Name");
+/// assert_eq!(de.size, 100);
+/// assert_eq!(de.num, 42);
+///
+/// ```
+///
+/// #### Optional fields
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::EnvField;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     required: EnvField<i32>,
+///     optional: Option<EnvField<i32>>,
+/// }
+///
+/// let de: Example = toml::from_str(r#"
+///     required = 512
+/// "#).unwrap();
+///
+/// assert_eq!(de.required, 512);
+/// assert!(de.optional.is_none());
+///
+/// std::env::set_var("OPTIONAL", "-1024");
+/// let de: Example = toml::from_str(r#"
+///     required = 512
+///     optional = "$OPTIONAL"
+/// "#).unwrap();
+///
+/// assert_eq!(de.required, 512);
+/// assert_eq!(de.optional.unwrap(), -1024);
+///
+/// let de: Example = toml::from_str(r#"
+///     required = 512
+///     optional = 42
+/// "#).unwrap();
+///
+/// assert_eq!(de.required, 512);
+/// assert_eq!(de.optional.unwrap(), 42);
+///
+/// ```
+///
+/// #### Sequences
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::EnvField;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     seq: Vec<EnvField<i32>>,
+/// }
+///
+/// std::env::set_var("NUM", "1000");
+/// let de: Example = toml::from_str(r#"
+///     seq = [
+///         12, "$NUM", 145,
+///     ]
+/// "#).unwrap();
+///
+/// assert_eq!(de.seq[0], 12);
+/// assert_eq!(de.seq[1], 1000);
+/// assert_eq!(de.seq[2], 145);
+///
+/// ```
+///
+/// #### Defaults
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::EnvField;
+/// use derive_more::FromStr;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     #[serde(default)]
+///     num: EnvField<NumWithDefault>,
+/// }
+///
+/// #[derive(Serialize, Deserialize, FromStr)]
+/// #[serde(transparent)]
+/// struct NumWithDefault(i32);
+/// impl Default for NumWithDefault {
+///     fn default() -> Self {
+///         Self(42)
+///     }
+/// }
+///
+/// let de: Example = toml::from_str("").unwrap();
+/// assert_eq!(de.num.0, 42);
+///
+/// let de: Example = toml::from_str(r#"
+///     num = 100
+/// "#).unwrap();
+/// assert_eq!(de.num.0, 100);
+///
+/// std::env::set_var("SOME_NUM", "555");
+/// let de: Example = toml::from_str(r#"
+///     num = "$SOME_NUM"
+/// "#).unwrap();
+/// assert_eq!(de.num.0, 555);
+///
+/// ```
+///
+/// #### Custom `FromStr`
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::EnvField;
+/// # use std::str::FromStr;
+/// # use std::num::ParseIntError;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     inner: EnvField<Inner>,
+/// }
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Inner {
+///     // We can use `EnvField` in inner structs
+///     num: EnvField<i32>,
+///
+///     sym: EnvField<String>,
+/// }
+///
+/// impl FromStr for Inner {
+///     type Err = String;
+///
+///     fn from_str(s: &str) -> Result<Self, Self::Err> {
+///         let mut split = s.split(';');
+///
+///         let num = split
+///             .next()
+///             .unwrap()
+///             .parse()
+///             .map_err(|err: ParseIntError| err.to_string())?;
+///
+///         let sym = split
+///             .next()
+///             .unwrap()
+///             .to_string()
+///             .into();
+///
+///         Ok(Self {
+///             num,
+///             sym
+///         })
+///     }
+/// }
+///
+/// std::env::set_var("INNER_NUM", "2048");
+/// std::env::set_var("INNER_SYM", "Hi");
+/// let de: Example = toml::from_str(r#"
+///     inner = "$INNER_NUM;$INNER_SYM"
+/// "#).unwrap();
+///
+/// assert_eq!(de.inner.num, 2048);
+/// assert_eq!(&de.inner.sym, "Hi");
+///
+///
+/// let de: Example = toml::from_str(r#"
+///     [inner]
+///     num = -500
+///     sym = "Hello"
+/// "#).unwrap();
+///
+/// assert_eq!(de.inner.num, -500);
+/// assert_eq!(&de.inner.sym, "Hello");
+///
+/// ```
+///
 #[repr(transparent)]
 #[derive(Serialize)]
 #[serde(transparent)]
 pub struct EnvField<T>(T);
 
 impl<T> EnvField<T> {
+    /// Unwraps the value, consuming the env field.
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -94,6 +305,14 @@ impl<T: Clone> Clone for EnvField<T> {
 }
 
 impl<T: Copy> Copy for EnvField<T> {}
+
+impl<T: FromStr> FromStr for EnvField<T> {
+    type Err = T::Err;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(Self(s.parse()?))
+    }
+}
 
 impl<T: Default> Default for EnvField<T> {
     fn default() -> Self {
