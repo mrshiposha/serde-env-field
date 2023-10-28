@@ -362,6 +362,56 @@ fn test_map_fields() {
 }
 
 #[test]
+fn test_several_env_vars() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        s: EnvField<String>,
+        n: EnvField<u32>,
+    }
+
+    // SEV = Several Env Vars
+    env::set_var("_SEV_S1", "env[str1]");
+    env::set_var("_SEV_S2", "env[str2]");
+    env::set_var("_SEV_N1", "4");
+    env::set_var("_SEV_N2", "2");
+    de_se_de_test::<Test>(
+        r#"
+            s = "$_SEV_S1/$_SEV_S2"
+            n = "$_SEV_N1$_SEV_N2"
+        "#,
+        |de| {
+            assert_eq!(&de.s, "env[str1]/env[str2]");
+            assert_eq!(de.n, 42);
+        },
+        indoc! {r#"
+            s = "env[str1]/env[str2]"
+            n = 42
+        "#},
+    );
+}
+
+#[test]
+fn test_not_existing_env_var() {
+    #[derive(Serialize, Deserialize, Debug)]
+    struct Test {
+        num: EnvField<i32>,
+    }
+
+    env::remove_var("NOT_EXISTING_VAR");
+    let err = toml::from_str::<Test>(
+        r#"
+        num = "$NOT_EXISTING_VAR"
+    "#,
+    )
+    .unwrap_err();
+
+    assert!(
+        err.message().contains("NOT_EXISTING_VAR")
+            && err.message().contains("environment variable not found")
+    );
+}
+
+#[test]
 fn test_primitives() {
     #[derive(Serialize, Deserialize)]
     struct Test {
