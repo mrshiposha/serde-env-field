@@ -52,6 +52,8 @@ use serde::{
 };
 use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
 
+pub use serde_env_field_wrap::env_field_wrap;
+
 /// A field that deserializes either as `T` or as `String`
 /// with all environment variables expanded via the [`shellexpand`] crate.
 ///

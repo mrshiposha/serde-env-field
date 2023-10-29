@@ -11,6 +11,7 @@ description = "A helper for serde deserialization with environment variables exp
 serde = { version = "1.0", features = ["derive"] }
 serde-untagged = "0.1.1"
 shellexpand = "3.1.0"
+serde-env-field-wrap = { path = "env-field-wrap" }
 
 [dev-dependencies]
 derive_more = "0.99.17"
