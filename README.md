@@ -1,5 +1,5 @@
 # serde-env-field
-[![](https://docs.rs/serde-env-field/badge.svg)](https://docs.rs/serde-env-field/) [![](https://img.shields.io/crates/v/serde-env-field.svg)](https://crates.io/crates/serde-env-field) [![](https://img.shields.io/crates/d/serde-env-field.svg)](https://crates.io/crates/serde-env-field)
+![CI](https://github.com/mrshiposha/serde-env-field/actions/workflows/rust.yml/badge.svg) [![](https://docs.rs/serde-env-field/badge.svg)](https://docs.rs/serde-env-field/) [![](https://img.shields.io/crates/v/serde-env-field.svg)](https://crates.io/crates/serde-env-field) [![](https://img.shields.io/crates/d/serde-env-field.svg)](https://crates.io/crates/serde-env-field)
 
 This crate provides the `EnvField<T>` type capable of deserializing the `T` type
 from a string with environment variables if the `T` implements the `FromStr` trait.
