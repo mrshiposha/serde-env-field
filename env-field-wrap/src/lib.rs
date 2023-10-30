@@ -231,26 +231,17 @@ enum WrapKind {
 }
 
 fn wrap_fields(fields: syn::Fields, kind: WrapKind) -> TokenStream2 {
-    let delim;
-    let named_delim;
-
-    match kind {
-        WrapKind::Struct => {
-            delim = quote!(;);
-            named_delim = quote!();
-        }
-        WrapKind::Enum => {
-            delim = quote!(,);
-            named_delim = delim.clone();
-        }
-    }
+    let delim = match kind {
+        WrapKind::Struct => quote!(;),
+        WrapKind::Enum => quote!(),
+    };
 
     match fields {
         syn::Fields::Named(fields) => {
             let fields = process_fields(fields.named.into_iter());
             quote![{
                 #fields
-            } #named_delim]
+            }]
         }
         syn::Fields::Unnamed(fields) => {
             let fields = process_fields(fields.unnamed.into_iter());
@@ -261,5 +252,8 @@ fn wrap_fields(fields: syn::Fields, kind: WrapKind) -> TokenStream2 {
 }
 
 fn enum_env_field_wrap(data: syn::DataEnum) -> TokenStream2 {
-    process_variants(data.variants.into_iter())
+    let variants = process_variants(data.variants.into_iter());
+    quote! {{
+        #variants
+    }}
 }
