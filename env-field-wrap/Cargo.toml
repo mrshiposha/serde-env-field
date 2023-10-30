@@ -2,6 +2,7 @@
 name = "serde-env-field-wrap"
 version = "0.1.0"
 edition = "2021"
+description = "An attribute that wraps all the fields of a struct or an enum with the EnvField type"
 license = "MIT"
 
 [lib]
