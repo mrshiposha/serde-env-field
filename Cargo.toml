@@ -8,7 +8,7 @@ repository = "https://github.com/mrshiposha/serde-env-field"
 description = "A helper for serde deserialization with environment variables expansion"
 documentation = "https://docs.rs/serde-env-field/latest/serde_env_field/"
 categories = ["encoding"]
-keywords = ["serde", "environment-variables", "env", "proc-macro"]
+keywords = ["serde", "environment", "variables", "env", "proc-macro"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
