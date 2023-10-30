@@ -622,13 +622,9 @@ fn test_wrap_tuple_struct() {
     #[env_field_wrap]
     #[derive(Serialize, Deserialize)]
     struct Test(
-        #[env_field_wrap(generics_only)]
-        TwoGenerics<i32, bool>,
-        
+        #[env_field_wrap(generics_only)] TwoGenerics<i32, bool>,
         #[env_field_wrap(skip)] String,
-
         Option<i32>,
-        
         Vec<bool>,
     );
 
@@ -692,12 +688,9 @@ fn test_wrap_enum() {
 
         Inner(
             #[env_field_wrap(skip)] String,
-
             Option<i32>,
             Vec<bool>,
-            
-            #[env_field_wrap(generics_only)]
-            TwoGenerics<i32, bool>,
+            #[env_field_wrap(generics_only)] TwoGenerics<i32, bool>,
         ),
     }
 
