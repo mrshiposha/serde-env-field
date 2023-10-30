@@ -10,12 +10,15 @@
 //!
 //! The `EnvField` works nicely with `Option`, `Vec`, and `#[serde(default)]`.
 //!
-//! #### Example
+//! Also, the crate provides the [`env_field_wrap`] attribute that wraps
+//! all the fields of a struct or an enum with the `EnvField` type.
+//! The attribute also honors the optional and vector fields.
+//!
+//! #### `EnvField` Example
 //!
 //! ```
 //! # use serde::{Serialize, Deserialize};
 //! # use serde_env_field::EnvField;
-//!
 //! #[derive(Serialize, Deserialize)]
 //! struct Example {
 //!     name: EnvField<String>,
@@ -38,7 +41,36 @@
 //! assert_eq!(de.num, 42);
 //! ```
 //!
-//! See the [`EnvField`] description for details.
+//! #### `env_field_wrap` Example
+//!
+//! ```
+//! # use serde::{Serialize, Deserialize};
+//! # use serde_env_field::env_field_wrap;
+//! #[env_field_wrap]
+//! #[derive(Serialize, Deserialize)]
+//! struct Example {
+//!     name: String,
+//!     size: usize,
+//!     num: i32,
+//! }
+//!
+//! std::env::set_var("SIZE", "100");
+//!
+//! let de: Example = toml::from_str(r#"
+//!     name = "${NAME:-Default Name}"
+//!
+//!     size = "$SIZE"
+//!
+//!     num = 42
+//! "#).unwrap();
+//!
+//! assert_eq!(&de.name, "Default Name");
+//! assert_eq!(de.size, 100);
+//! assert_eq!(de.num, 42);
+//!
+//! ```
+//!
+//! See the description of the [`EnvField`] and the [`env_field_wrap`] for details.
 
 use std::{
     fmt::{self, Debug},
@@ -52,6 +84,208 @@ use serde::{
 };
 use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
 
+/// The `env_field_wrap` wraps all the fields of a struct or an enum with the [`EnvField`] type.
+///
+/// The [`Option<T>`] fields will remain optional, with only the `T` type wrapped with the `EnvField`.
+///
+/// Similarly, the [`Vec<T>`] fields will remain vectors, with only the `T` type wrapped.
+///
+/// It is possible to skip a field using the `#[env_field_wrap(skip)]` attribute.<br/>
+/// Also, one can wrap a generic type similarly to an `Option` field
+/// using the `#[env_field_wrap(generics_only)]` attribute.
+///
+/// **NOTE:** If you are using the `#[derive(Deserialize)]`,
+/// the `#[env_field_wrap]` attribute must appear **before** it.
+/// Otherwise, it won't work.
+///
+/// ### Examples
+///
+/// #### Basic
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::env_field_wrap;
+/// #[env_field_wrap]
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     name: String,
+///     size: usize,
+///     num: i32,
+/// }
+///
+/// std::env::set_var("SIZE", "100");
+///
+/// let de: Example = toml::from_str(r#"
+///     name = "${NAME:-Default Name}"
+///
+///     size = "$SIZE"
+///
+///     num = 42
+/// "#).unwrap();
+///
+/// assert_eq!(&de.name, "Default Name");
+/// assert_eq!(de.size, 100);
+/// assert_eq!(de.num, 42);
+///
+/// ```
+///
+/// #### Optional fields
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::env_field_wrap;
+/// #[env_field_wrap]
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     required: i32,
+///     optional: Option<i32>,
+/// }
+///
+/// let de: Example = toml::from_str(r#"
+///     required = 512
+/// "#).unwrap();
+///
+/// assert_eq!(de.required, 512);
+/// assert!(de.optional.is_none());
+///
+/// std::env::set_var("OPTIONAL", "-1024");
+/// let de: Example = toml::from_str(r#"
+///     required = 512
+///     optional = "$OPTIONAL"
+/// "#).unwrap();
+///
+/// assert_eq!(de.required, 512);
+/// assert_eq!(de.optional.unwrap(), -1024);
+///
+/// let de: Example = toml::from_str(r#"
+///     required = 512
+///     optional = 42
+/// "#).unwrap();
+///
+/// assert_eq!(de.required, 512);
+/// assert_eq!(de.optional.unwrap(), 42);
+///
+/// ```
+///
+/// #### Vector fields
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::env_field_wrap;
+/// #[env_field_wrap]
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     seq: Vec<i32>,
+/// }
+///
+/// std::env::set_var("NUM", "1000");
+/// let de: Example = toml::from_str(r#"
+///     seq = [
+///         12, "$NUM", 145,
+///     ]
+/// "#).unwrap();
+///
+/// assert_eq!(de.seq[0], 12);
+/// assert_eq!(de.seq[1], 1000);
+/// assert_eq!(de.seq[2], 145);
+///
+/// ```
+///
+/// #### Skip a field
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::env_field_wrap;
+/// #[env_field_wrap]
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///    wrapped: String,
+///
+///    #[env_field_wrap(skip)]
+///    skipped: String,
+/// }
+///
+/// std::env::set_var("WRAPPED", "From Env");
+/// let de: Example = toml::from_str(r#"
+///     wrapped = "$WRAPPED"
+///     skipped = "$SKIPPED"
+/// "#).unwrap();
+///
+/// assert_eq!(&de.wrapped, "From Env");
+/// assert_eq!(&de.skipped, "$SKIPPED");
+///
+/// ```
+///
+/// #### Skip an enum variant
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::env_field_wrap;
+/// #[env_field_wrap]
+/// #[derive(Serialize, Deserialize)]
+/// enum Example {
+///     Wrapped(String),
+///
+///     #[env_field_wrap(skip)]
+///     Skipped {
+///         inner_str: String,
+///     },
+/// }
+///
+/// std::env::set_var("WRAPPED", "From Env");
+/// let de: Example = serde_json::from_str(r#"
+///     {
+///         "Wrapped": "$WRAPPED"
+///     }
+/// "#).unwrap();
+///
+/// assert!(matches![de, Example::Wrapped(s) if &s == "From Env"]);
+///
+/// let de: Example = serde_json::from_str(r#"
+///     {
+///         "Skipped": {
+///             "inner_str": "$WRAPPED"
+///         }
+///     }
+/// "#).unwrap();
+///
+/// assert!(matches![de, Example::Skipped { inner_str } if inner_str == "$WRAPPED"]);
+///
+/// ```
+///
+/// #### Wrap generics only
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::env_field_wrap;
+/// #[env_field_wrap]
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     // Will become `TwoGenerics<EnvField<String>, EnvField<i32>>`
+///     // instead of `EnvField<TwoGenerics<String, i32>>`.
+///     //
+///     // Note: the `TwoGenerics` don't need to implement the `FromStr` in this case.
+///     #[env_field_wrap(generics_only)]
+///     generics: TwoGenerics<String, i32>,
+/// }
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct TwoGenerics<A, B> {
+///     a: A,
+///     b: B,
+/// }
+///
+/// std::env::set_var("GENERICS_STR", "env string");
+/// std::env::set_var("GENERICS_I32", "517");
+/// let de: Example = toml::from_str(r#"
+///     [generics]
+///     a = "$GENERICS_STR"
+///     b = "$GENERICS_I32"
+/// "#).unwrap();
+///
+/// assert_eq!(&de.generics.a, "env string");
+/// assert_eq!(de.generics.b, 517);
+///
+/// ```
 pub use serde_env_field_wrap::env_field_wrap;
 
 /// A field that deserializes either as `T` or as `String`
@@ -60,7 +294,12 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// Requires `T` to implement the `FromStr` trait
 /// for deserialization from String after environment variables expansion.
 ///
+/// Serializes transparently as the `T` type if the `T` is serializable.
+///
 /// Works nicely with `Option`, `Vec`, and `#[serde(default)]`.
+///
+/// Note: if you want to wrap all the fields of a struct or an enum
+/// with the `EnvField`, you might want to use the [`env_field_wrap`] attribute.
 ///
 /// ### Examples
 ///
@@ -68,7 +307,6 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// ```
 /// # use serde::{Serialize, Deserialize};
 /// # use serde_env_field::EnvField;
-///
 /// #[derive(Serialize, Deserialize)]
 /// struct Example {
 ///     name: EnvField<String>,
@@ -97,7 +335,6 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// ```
 /// # use serde::{Serialize, Deserialize};
 /// # use serde_env_field::EnvField;
-///
 /// #[derive(Serialize, Deserialize)]
 /// struct Example {
 ///     required: EnvField<i32>,
@@ -135,7 +372,6 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// ```
 /// # use serde::{Serialize, Deserialize};
 /// # use serde_env_field::EnvField;
-///
 /// #[derive(Serialize, Deserialize)]
 /// struct Example {
 ///     seq: Vec<EnvField<i32>>,
@@ -199,7 +435,6 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// # use serde_env_field::EnvField;
 /// # use std::str::FromStr;
 /// # use std::num::ParseIntError;
-///
 /// #[derive(Serialize, Deserialize)]
 /// struct Example {
 ///     inner: EnvField<Inner>,

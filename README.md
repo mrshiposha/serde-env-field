@@ -13,7 +13,10 @@ will attempt to deserialize the `T` type directly from the data.
 
 The `EnvField` works nicely with `Option`, `Vec`, and `#[serde(default)]`.
 
-#### Example
+Also, the crate provides the `env_field_wrap` attribute that wraps all the fields of a struct or an enum with the `EnvField` type.
+The attribute also honors the optional and vector fields.
+
+#### `EnvField` Example
 
 ```rust
 #[derive(Serialize, Deserialize)]
@@ -37,6 +40,30 @@ assert_eq!(&de.name, "Default Name");
 assert_eq!(de.size, 100);
 assert_eq!(de.num, 42);
 ```
+#### `env_field_wrap` Example
 
+```rust
+#[env_field_wrap]
+#[derive(Serialize, Deserialize)]
+struct Example {
+    name: String,
+    size: usize,
+    num: i32,
+}
 
-See the [EnvField](https://docs.rs/serde-env-field/latest/serde_env_field/struct.EnvField.html) documentation for details.
+std::env::set_var("SIZE", "100");
+
+let de: Example = toml::from_str(r#"
+    name = "${NAME:-Default Name}"
+
+    size = "$SIZE"
+
+    num = 42
+"#).unwrap();
+
+assert_eq!(&de.name, "Default Name");
+assert_eq!(de.size, 100);
+assert_eq!(de.num, 42);
+```
+
+See the documentation of the [EnvField](https://docs.rs/serde-env-field/latest/serde_env_field/struct.EnvField.html) and the [env_field_wrap](https://docs.rs/serde-env-field/latest/serde_env_field/attr.env_field_wrap.html) for details.
