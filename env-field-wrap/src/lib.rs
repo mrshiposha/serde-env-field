@@ -146,7 +146,7 @@ fn wrap_generics_only(ty: &syn::Type) -> TokenStream2 {
             let ty_path = if leading_segments.is_empty() {
                 quote!(#ty_with_generics)
             } else {
-                quote!(#leading_segments < #ty_with_generics >)
+                quote!(#leading_segments :: #ty_with_generics)
             };
 
             quote! {

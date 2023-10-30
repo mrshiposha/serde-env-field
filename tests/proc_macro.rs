@@ -1,9 +1,11 @@
+extern crate alloc;
+
 use std::{env, str::FromStr};
 
-use indoc::indoc;
-use serde::{Serialize, Deserialize, de::DeserializeOwned};
-use serde_env_field::env_field_wrap;
 use derive_more::FromStr;
+use indoc::indoc;
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
+use serde_env_field::env_field_wrap;
 
 fn de_se_de_test<T: Serialize + DeserializeOwned>(
     source_text: &'static str,
@@ -98,7 +100,8 @@ fn test_wrap_optional_fields() {
     #[derive(Serialize, Deserialize)]
     struct Test {
         name: Option<String>,
-        size: Option<usize>,
+        size: std::option::Option<usize>,
+        weight: core::option::Option<i32>,
     }
 
     de_se_de_test::<Test>(
@@ -106,6 +109,7 @@ fn test_wrap_optional_fields() {
         |de| {
             assert!(&de.name.is_none());
             assert!(de.size.is_none());
+            assert!(de.weight.is_none());
         },
         "",
     );
@@ -131,24 +135,29 @@ fn test_wrap_optional_fields() {
         |de| {
             assert!(de.name.is_none());
             assert_eq!(de.size.unwrap(), 514);
+            assert!(de.weight.is_none());
         },
         indoc! {r#"
             size = 514
         "#},
     );
 
+    env::set_var("WEIGHT_test_optional", "-222");
     de_se_de_test::<Test>(
         r#"
             name = "Not-Var"
             size = "${SIZE_test_optional:-12}"
+            weight = "$WEIGHT_test_optional"
         "#,
         |de| {
             assert_eq!(de.name.as_ref().unwrap(), "Not-Var");
             assert_eq!(de.size.unwrap(), 12);
+            assert_eq!(de.weight.unwrap(), -222);
         },
         indoc! {r#"
             name = "Not-Var"
             size = 12
+            weight = -222
         "#},
     );
 }
@@ -219,11 +228,13 @@ fn test_wrap_seq_fields() {
     #[derive(Serialize, Deserialize)]
     struct Test {
         numbers: Vec<i32>,
-        strings: Vec<String>,
+        strings: std::vec::Vec<String>,
+        bools: alloc::vec::Vec<bool>,
     }
 
     env::set_var("NUMBER1_test_seq", "-1024");
     env::set_var("TWO_test_seq", "Str from Env");
+    env::set_var("BOOL_test_seq", "true");
     de_se_de_test::<Test>(
         r#"
             numbers = [
@@ -236,6 +247,11 @@ fn test_wrap_seq_fields() {
                 "ONE",
                 "$TWO_test_seq"
             ]
+            bools = [
+                "$BOOL_test_seq",
+                false,
+                true
+            ]
         "#,
         |de| {
             assert!(de.numbers.iter().eq([42, -1024, 48, -512,].iter()));
@@ -245,6 +261,8 @@ fn test_wrap_seq_fields() {
                 .iter()
                 .map(|e| e.as_str())
                 .eq(["ONE", "Str from Env",].into_iter()));
+
+            assert!(de.bools.iter().eq([true, false, true].iter()));
         },
         indoc! {r#"
             numbers = [
@@ -256,6 +274,11 @@ fn test_wrap_seq_fields() {
             strings = [
                 "ONE",
                 "Str from Env",
+            ]
+            bools = [
+                true,
+                false,
+                true,
             ]
         "#},
     );
@@ -274,6 +297,11 @@ fn test_wrap_seq_fields() {
                 "Another",
                 "$TWO_test_seq"
             ]
+            bools = [
+                "$BOOL_test_seq",
+                false,
+                true
+            ]
         "#,
         |de| {
             assert!(de.numbers.iter().eq([42, 111, -64, -512,].iter()));
@@ -283,6 +311,8 @@ fn test_wrap_seq_fields() {
                 .iter()
                 .map(|e| e.as_str())
                 .eq(["Another", "Str from Env",].into_iter()));
+
+            assert!(de.bools.iter().eq([true, false, true].iter()));
         },
         indoc! {r#"
             numbers = [
@@ -294,6 +324,11 @@ fn test_wrap_seq_fields() {
             strings = [
                 "Another",
                 "Str from Env",
+            ]
+            bools = [
+                true,
+                false,
+                true,
             ]
         "#},
     );
@@ -559,7 +594,10 @@ fn test_wrap_generics_only() {
         "#},
     );
 
-    toml::from_str::<Test>(r#"
+    toml::from_str::<Test>(
+        r#"
         generics = "from str"
-    "#).unwrap_err();
+    "#,
+    )
+    .unwrap_err();
 }
