@@ -1,6 +1,6 @@
 extern crate alloc;
 
-use std::{env, str::FromStr};
+use std::{env, str::FromStr, unreachable};
 
 use derive_more::FromStr;
 use indoc::indoc;
@@ -19,6 +19,21 @@ fn de_se_de_test<T: Serialize + DeserializeOwned>(
     assert_eq!(serialized, expected_serialized);
 
     let deserialized_again: T = toml::from_str(&serialized).unwrap();
+    check_value(&deserialized_again);
+}
+
+fn de_se_de_json_test<T: Serialize + DeserializeOwned>(
+    source_text: &'static str,
+    check_value: impl Fn(&T),
+    expected_serialized: &'static str,
+) {
+    let deserialized: T = serde_json::from_str(source_text).unwrap();
+    check_value(&deserialized);
+
+    let serialized = serde_json::to_string_pretty(&deserialized).unwrap();
+    assert_eq!(serialized, expected_serialized);
+
+    let deserialized_again: T = serde_json::from_str(&serialized).unwrap();
     check_value(&deserialized_again);
 }
 
@@ -600,4 +615,177 @@ fn test_wrap_generics_only() {
     "#,
     )
     .unwrap_err();
+}
+
+#[test]
+fn test_wrap_tuple_struct() {
+    #[env_field_wrap]
+    #[derive(Serialize, Deserialize)]
+    struct Test(
+        #[env_field_wrap(generics_only)]
+        TwoGenerics<i32, bool>,
+        
+        #[env_field_wrap(skip)] String,
+
+        Option<i32>,
+        
+        Vec<bool>,
+    );
+
+    #[derive(Serialize, Deserialize)]
+    struct TwoGenerics<A, B> {
+        a: A,
+        b: B,
+    }
+
+    env::set_var("NUM_tup", "333");
+    env::set_var("BOOL_tup", "true");
+    de_se_de_json_test::<Test>(
+        r#"
+            [
+              {
+                "a": "$NUM_tup",
+                "b": "$BOOL_tup"
+              },
+              "$WRAPPED_tup",
+              "$NUM_tup",
+              ["$BOOL_tup", false, false]
+            ]
+        "#,
+        |de| {
+            assert_eq!(de.0.a, 333);
+            assert_eq!(de.0.b, true);
+            assert_eq!(&de.1, "$WRAPPED_tup");
+            assert_eq!(de.2.unwrap(), 333);
+            assert!(de.3.iter().eq([true, false, false].iter()));
+        },
+        indoc! {
+            r#"
+            [
+              {
+                "a": 333,
+                "b": true
+              },
+              "$WRAPPED_tup",
+              333,
+              [
+                true,
+                false,
+                false
+              ]
+            ]"#
+        },
+    );
+}
+
+#[test]
+fn test_wrap_enum() {
+    #[env_field_wrap]
+    #[derive(Serialize, Deserialize)]
+    enum Test {
+        Wrapped(String),
+
+        #[env_field_wrap(skip)]
+        Skipped {
+            inner_str: String,
+        },
+
+        Inner(
+            #[env_field_wrap(skip)] String,
+
+            Option<i32>,
+            Vec<bool>,
+            
+            #[env_field_wrap(generics_only)]
+            TwoGenerics<i32, bool>,
+        ),
+    }
+
+    #[derive(Serialize, Deserialize)]
+    struct TwoGenerics<A, B> {
+        a: A,
+        b: B,
+    }
+
+    env::set_var("WRAPPED_enum", "Enum String From Env");
+    de_se_de_test::<Test>(
+        r#"
+            Wrapped = "$WRAPPED_enum"
+        "#,
+        |de| {
+            assert!(matches![de, Test::Wrapped(s) if s == "Enum String From Env"]);
+        },
+        indoc! {r#"
+            Wrapped = "Enum String From Env"
+        "#},
+    );
+
+    de_se_de_json_test::<Test>(
+        r#"
+            {
+                "Skipped": {
+                    "inner_str": "$WRAPPED_enum"
+                }
+            }
+        "#,
+        |de| {
+            assert!(matches![de, Test::Skipped { inner_str } if inner_str == "$WRAPPED_enum"]);
+        },
+        indoc! {
+            r#"
+            {
+              "Skipped": {
+                "inner_str": "$WRAPPED_enum"
+              }
+            }"#
+        },
+    );
+
+    env::set_var("NUM_enum", "117");
+    env::set_var("BOOL_enum", "false");
+    de_se_de_json_test::<Test>(
+        r#"
+            {
+                "Inner": [
+                    "$WRAPPED_enum",
+                    "$NUM_enum",
+                    [true, true, "$BOOL_enum"],
+                    {
+                        "a": "$NUM_enum",
+                        "b": "$BOOL_enum"
+                    }
+                ]
+            }
+        "#,
+        |de| {
+            assert!(matches![de, Test::Inner(_, _, _, _)]);
+            let Test::Inner(skipped, o, v, g) = de else {
+                unreachable!()
+            };
+
+            assert_eq!(skipped, "$WRAPPED_enum");
+            assert_eq!(o.unwrap(), 117);
+            assert!(v.iter().eq([true, true, false].iter()));
+            assert_eq!(g.a, 117);
+            assert_eq!(g.b, false);
+        },
+        indoc! {
+            r#"
+            {
+              "Inner": [
+                "$WRAPPED_enum",
+                117,
+                [
+                  true,
+                  true,
+                  false
+                ],
+                {
+                  "a": 117,
+                  "b": false
+                }
+              ]
+            }"#
+        },
+    );
 }

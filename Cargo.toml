@@ -16,4 +16,5 @@ serde-env-field-wrap = { path = "env-field-wrap" }
 [dev-dependencies]
 derive_more = "0.99.17"
 indoc = "2.0.4"
+serde_json = "1.0.107"
 toml = "0.8.4"
