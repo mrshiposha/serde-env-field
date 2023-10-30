@@ -1,6 +1,6 @@
 use proc_macro::TokenStream;
 use proc_macro2::{Span, TokenStream as TokenStream2};
-use proc_macro_error::{abort, abort_call_site};
+use proc_macro_error::{abort, abort_call_site, proc_macro_error};
 use quote::{quote, ToTokens};
 use syn::{
     parse_macro_input, punctuated::Punctuated, spanned::Spanned, Data, DeriveInput,
@@ -8,6 +8,7 @@ use syn::{
 };
 
 #[proc_macro_attribute]
+#[proc_macro_error]
 pub fn env_field_wrap(params: TokenStream, input: TokenStream) -> TokenStream {
     if !params.is_empty() {
         abort_call_site!("The `env_field_wrap` doesn't take any parameters");
