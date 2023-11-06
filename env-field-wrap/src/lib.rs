@@ -76,7 +76,7 @@ fn take_env_field_wrap_attr(attrs: &mut Vec<syn::Attribute>) -> Option<WrapAttr>
     })
 }
 
-fn is_type(ty: &syn::Type, unqualified: &str, qualified: &[&str]) -> bool {
+fn is_type(ty: &syn::Type, ty_paths: &[&str]) -> bool {
     match ty {
         syn::Type::Path(ty_path) if ty_path.qself.is_none() => {
             let path = &ty_path.path;
@@ -90,7 +90,7 @@ fn is_type(ty: &syn::Type, unqualified: &str, qualified: &[&str]) -> bool {
             // Remove the last `::`
             let path_ty_str = &path_ty_str[..path_ty_str.len() - 2];
 
-            path_ty_str == unqualified || qualified.iter().any(|ty| *ty == path_ty_str)
+            ty_paths.iter().any(|ty| *ty == path_ty_str)
         }
         _ => false,
     }
@@ -170,11 +170,12 @@ fn process_fields(fields: impl Iterator<Item = syn::Field>) -> TokenStream2 {
                 None => {
                     if is_type(
                         &ty,
-                        "Option",
-                        &["std::option::Option", "core::option::Option"],
-                    ) || is_type(&ty, "Vec", &["std::vec::Vec", "alloc::vec::Vec"])
+                        &["Option", "std::option::Option", "core::option::Option"],
+                    ) || is_type(&ty, &["Vec", "std::vec::Vec", "alloc::vec::Vec"])
                     {
                         wrap_generics_only(&ty)
+                    } else if is_type(&ty, &["EnvField", "serde_env_field::EnvField"]) {
+                        quote!(#ty)
                     } else {
                         quote!(::serde_env_field::EnvField<#ty>)
                     }
