@@ -1,11 +1,11 @@
 extern crate alloc;
 
-use std::{env, str::FromStr, unreachable};
+use std::{assert_eq, env, str::FromStr, unreachable};
 
 use derive_more::FromStr;
 use indoc::indoc;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_env_field::env_field_wrap;
+use serde_env_field::{env_field_wrap, EnvField, UseDeserialize};
 
 fn de_se_de_test<T: Serialize + DeserializeOwned>(
     source_text: &'static str,
@@ -116,7 +116,9 @@ fn test_wrap_optional_fields() {
     struct Test {
         name: Option<String>,
         size: std::option::Option<usize>,
+        leading_size: ::std::option::Option<usize>,
         weight: core::option::Option<i32>,
+        leading_weight: ::core::option::Option<i32>,
     }
 
     de_se_de_test::<Test>(
@@ -124,7 +126,9 @@ fn test_wrap_optional_fields() {
         |de| {
             assert!(&de.name.is_none());
             assert!(de.size.is_none());
+            assert!(de.leading_size.is_none());
             assert!(de.weight.is_none());
+            assert!(de.leading_weight.is_none());
         },
         "",
     );
@@ -162,7 +166,9 @@ fn test_wrap_optional_fields() {
         r#"
             name = "Not-Var"
             size = "${SIZE_test_optional:-12}"
+            leading_size = 5515
             weight = "$WEIGHT_test_optional"
+            leading_weight = "$WEIGHT_test_optional"
         "#,
         |de| {
             assert_eq!(de.name.as_ref().unwrap(), "Not-Var");
@@ -172,7 +178,9 @@ fn test_wrap_optional_fields() {
         indoc! {r#"
             name = "Not-Var"
             size = 12
+            leading_size = 5515
             weight = -222
+            leading_weight = -222
         "#},
     );
 }
@@ -345,6 +353,47 @@ fn test_wrap_seq_fields() {
                 false,
                 true,
             ]
+        "#},
+    );
+}
+
+#[test]
+fn test_wrap_skip_env_field() {
+    #[env_field_wrap]
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        option: EnvField<Options, UseDeserialize>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    enum Options {
+        AUsefullOption,
+        AnotherCoolOption,
+    }
+
+    de_se_de_test::<Test>(
+        r#"
+            option = "a-usefull-option"
+        "#,
+        |de| {
+            assert!(matches!(*de.option, Options::AUsefullOption));
+        },
+        indoc! {r#"
+            option = "a-usefull-option"
+        "#},
+    );
+
+    env::set_var("OPTION_skip_env_field", "another-cool-option");
+    de_se_de_test::<Test>(
+        r#"
+            option = "$OPTION_skip_env_field"
+        "#,
+        |de| {
+            assert!(matches!(*de.option, Options::AnotherCoolOption));
+        },
+        indoc! {r#"
+            option = "another-cool-option"
         "#},
     );
 }

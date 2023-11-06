@@ -95,7 +95,9 @@ use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
 ///
 /// Similarly, the [`Vec<T>`] fields will remain vectors, with only the `T` type wrapped.
 ///
-/// It is possible to skip a field using the `#[env_field_wrap(skip)]` attribute.<br/>
+/// It is possible to skip a field using the `#[env_field_wrap(skip)]` attribute.
+/// The fields that already have the `EnvField` type skipped automatically.
+///
 /// Also, one can wrap a generic type similarly to an `Option` field
 /// using the `#[env_field_wrap(generics_only)]` attribute.
 ///

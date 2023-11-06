@@ -546,7 +546,6 @@ fn test_use_deserialize() {
     #[derive(Serialize, Deserialize)]
     struct Test {
         option: EnvField<Options, UseDeserialize>,
-        n: Option<EnvField<i32, UseDeserialize>>,
     }
 
     #[derive(Serialize, Deserialize)]
