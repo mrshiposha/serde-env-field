@@ -1,9 +1,11 @@
 //! This crate provides the [`EnvField<T>`] type capable of deserializing the `T` type
-//! from a string with environment variables if the `T` implements the `FromStr` trait.
+//! from a string with environment variables expanded.
 //!
 //! During deserialization, the `EnvField` will try to deserialize the data as a string and expand all
 //! the environment variables. After the expansion, the resulting string will be used
-//! to construct the `T` type using the `FromStr` trait.
+//! to construct the `T` value.
+//! By default, the `EnvField` will construct the `T` value using the `FromStr` trait.
+//! However, it is possible to make it use the `Deserialize` trait using the [`UseDeserialize`] marker.
 //!
 //! If the supplied data was not a string, the `EnvField`
 //! will attempt to deserialize the `T` type directly from the data.
@@ -72,14 +74,17 @@
 //!
 //! See the description of the [`EnvField`] and the [`env_field_wrap`] for details.
 
+#![warn(missing_docs)]
+
 use std::{
     fmt::{self, Debug},
+    marker::PhantomData,
     ops::*,
     str::FromStr,
 };
 
 use serde::{
-    de::{self, Error},
+    de::{self, value::StringDeserializer, Error},
     Deserialize, Serialize,
 };
 use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
@@ -291,10 +296,13 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// A field that deserializes either as `T` or as `String`
 /// with all environment variables expanded via the [`shellexpand`] crate.
 ///
-/// Requires `T` to implement the `FromStr` trait
-/// for deserialization from String after environment variables expansion.
+/// By default, it requires `T` to implement the `FromStr` trait
+/// for deserialization from `String` after environment variables expansion.
 ///
-/// Serializes transparently as the `T` type if the `T` is serializable.
+/// You can use the [`UseDeserialize`] to bypass the `FromStr` and deserialize the `T`
+/// directly from the string with all environment variables expanded.
+///
+/// The `EnvField` serializes transparently as the `T` type if the `T` is serializable.
 ///
 /// Works nicely with `Option`, `Vec`, and `#[serde(default)]`.
 ///
@@ -428,7 +436,38 @@ pub use serde_env_field_wrap::env_field_wrap;
 ///
 /// ```
 ///
-/// #### Custom `FromStr`
+/// #### Deserialization without `FromStr`
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::EnvField;
+/// use serde_env_field::UseDeserialize;
+///
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     variant: EnvField<Variants, UseDeserialize>
+/// }
+///
+/// #[derive(Serialize, Deserialize)]
+/// #[serde(rename_all = "kebab-case")]
+/// enum Variants {
+///     AUsefullVariant,
+///     AnotherCoolVariant,
+/// }
+///
+/// let de: Example = toml::from_str(r#"
+///     variant = "a-usefull-variant"
+/// "#).unwrap();
+/// assert!(matches!(*de.variant, Variants::AUsefullVariant));
+///
+/// std::env::set_var("SELECTED_VARIANT", "another-cool-variant");
+/// let de: Example = toml::from_str(r#"
+///     variant = "$SELECTED_VARIANT"
+/// "#).unwrap();
+/// assert!(matches!(*de.variant, Variants::AnotherCoolVariant));
+/// ```
+///
+/// #### Deserialization with `FromStr`
 ///
 /// ```
 /// # use serde::{Serialize, Deserialize};
@@ -495,43 +534,110 @@ pub use serde_env_field_wrap::env_field_wrap;
 /// ```
 ///
 #[repr(transparent)]
-#[derive(Serialize)]
-#[serde(transparent)]
-pub struct EnvField<T>(T);
+pub struct EnvField<T, Variant = UseFromStr>(T, PhantomData<Variant>);
 
-impl<T> EnvField<T> {
+/// A marker type for passing into the [`EnvField<T>`] type as a second parameter.
+///
+/// The `EnvField` will use the [`FromStr`] trait for constructing the `T` type
+/// after the environment variables expansion.
+///
+/// This is the default for the `EnvField`.
+pub struct UseFromStr;
+
+/// A marker type for passing into the [`EnvField<T>`] type as a second parameter.
+///
+/// The `EnvField` will use the [`Deserialize`] trait for constructing the `T` type
+/// after the environment variables expansion.
+/// I.e., the `T` will be deserialized directly from the string with all environment variables expanded.
+///
+/// ### Example
+///
+/// ```
+/// # use serde::{Serialize, Deserialize};
+/// # use serde_env_field::{EnvField, UseDeserialize};
+/// #[derive(Serialize, Deserialize)]
+/// struct Example {
+///     variant: EnvField<Variants, UseDeserialize>
+/// }
+///
+/// #[derive(Serialize, Deserialize)]
+/// #[serde(rename_all = "kebab-case")]
+/// enum Variants {
+///     AUsefullVariant,
+///     AnotherCoolVariant,
+/// }
+///
+/// let de: Example = toml::from_str(r#"
+///     variant = "a-usefull-variant"
+/// "#).unwrap();
+/// assert!(matches!(*de.variant, Variants::AUsefullVariant));
+///
+/// std::env::set_var("SELECTED_VARIANT", "another-cool-variant");
+/// let de: Example = toml::from_str(r#"
+///     variant = "$SELECTED_VARIANT"
+/// "#).unwrap();
+/// assert!(matches!(*de.variant, Variants::AnotherCoolVariant));
+/// ```
+pub struct UseDeserialize;
+
+impl<T: Serialize, V> Serialize for EnvField<T, V> {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.0.serialize(serializer)
+    }
+}
+
+impl<T, V> EnvField<T, V> {
     /// Unwraps the value, consuming the env field.
     pub fn into_inner(self) -> T {
         self.0
     }
 }
 
-impl<T> EnvField<T>
+impl<T> EnvField<T, UseFromStr>
 where
     T: FromStr,
     <T as FromStr>::Err: fmt::Display,
 {
     fn env_expand_and_parse(str_data: &str) -> Result<Self, UntaggedError> {
         match shellexpand::env(&str_data) {
-            Ok(expanded) => expanded.parse().map(Self).map_err(Error::custom),
+            Ok(expanded) => expanded
+                .parse()
+                .map(|v| Self(v, PhantomData))
+                .map_err(Error::custom),
             Err(err) => Err(Error::custom(err)),
         }
     }
 }
 
-impl<T> From<T> for EnvField<T> {
+impl<'de, T> EnvField<T, UseDeserialize>
+where
+    T: Deserialize<'de>,
+{
+    fn env_expand_and_deserialize(str_data: &str) -> Result<Self, UntaggedError> {
+        match shellexpand::env(&str_data) {
+            Ok(expanded) => T::deserialize(StringDeserializer::new(expanded.into()))
+                .map(|v| Self(v, PhantomData)),
+            Err(err) => Err(Error::custom(err)),
+        }
+    }
+}
+
+impl<T, V> From<T> for EnvField<T, V> {
     fn from(value: T) -> Self {
-        Self(value)
+        Self(value, PhantomData)
     }
 }
 
 macro_rules! deserialize_value {
     ($de:ident) => {
-        |v| T::deserialize(de::value::$de::new(v)).map(Self)
+        |v| T::deserialize(de::value::$de::new(v)).map(|v| Self(v, PhantomData))
     };
 }
 
-impl<'de, T> Deserialize<'de> for EnvField<T>
+impl<'de, T> Deserialize<'de> for EnvField<T, UseFromStr>
 where
     T: Deserialize<'de> + FromStr,
     <T as FromStr>::Err: fmt::Display,
@@ -559,41 +665,74 @@ where
             .char(deserialize_value!(CharDeserializer))
             .bytes(deserialize_value!(BytesDeserializer))
             .borrowed_bytes(deserialize_value!(BorrowedBytesDeserializer))
-            .seq(|seq| seq.deserialize().map(Self))
-            .map(|map| map.deserialize().map(Self))
+            .seq(|seq| seq.deserialize().map(|v| Self(v, PhantomData)))
+            .map(|map| map.deserialize().map(|v| Self(v, PhantomData)))
             .deserialize(deserializer)
     }
 }
 
-impl<T: Clone> Clone for EnvField<T> {
-    fn clone(&self) -> Self {
-        Self(self.0.clone())
+impl<'de, T> Deserialize<'de> for EnvField<T, UseDeserialize>
+where
+    T: Deserialize<'de>,
+{
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        UntaggedEnumVisitor::new()
+            .string(Self::env_expand_and_deserialize)
+            .borrowed_str(Self::env_expand_and_deserialize)
+            .bool(deserialize_value!(BoolDeserializer))
+            .i8(deserialize_value!(I8Deserializer))
+            .i16(deserialize_value!(I16Deserializer))
+            .i32(deserialize_value!(I32Deserializer))
+            .i64(deserialize_value!(I64Deserializer))
+            .i128(deserialize_value!(I128Deserializer))
+            .u8(deserialize_value!(U8Deserializer))
+            .u16(deserialize_value!(U16Deserializer))
+            .u32(deserialize_value!(U32Deserializer))
+            .u64(deserialize_value!(U64Deserializer))
+            .u128(deserialize_value!(U128Deserializer))
+            .f32(deserialize_value!(F32Deserializer))
+            .f64(deserialize_value!(F64Deserializer))
+            .char(deserialize_value!(CharDeserializer))
+            .bytes(deserialize_value!(BytesDeserializer))
+            .borrowed_bytes(deserialize_value!(BorrowedBytesDeserializer))
+            .seq(|seq| seq.deserialize().map(|v| Self(v, PhantomData)))
+            .map(|map| map.deserialize().map(|v| Self(v, PhantomData)))
+            .deserialize(deserializer)
     }
 }
 
-impl<T: Copy> Copy for EnvField<T> {}
+impl<T: Clone, V> Clone for EnvField<T, V> {
+    fn clone(&self) -> Self {
+        Self(self.0.clone(), PhantomData)
+    }
+}
 
-impl<T: FromStr> FromStr for EnvField<T> {
+impl<T: Copy, V> Copy for EnvField<T, V> {}
+
+impl<T: FromStr, V> FromStr for EnvField<T, V> {
     type Err = T::Err;
 
     fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(Self(s.parse()?))
+        Ok(Self(s.parse()?, PhantomData))
     }
 }
 
-impl<T: Default> Default for EnvField<T> {
+impl<T: Default, V> Default for EnvField<T, V> {
     fn default() -> Self {
-        Self(T::default())
+        Self(T::default(), PhantomData)
     }
 }
 
-impl<T: Debug> Debug for EnvField<T> {
+impl<T: Debug, V> Debug for EnvField<T, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
 }
 
-impl<T> Deref for EnvField<T> {
+impl<T, V> Deref for EnvField<T, V> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -601,45 +740,45 @@ impl<T> Deref for EnvField<T> {
     }
 }
 
-impl<T> DerefMut for EnvField<T> {
+impl<T, V> DerefMut for EnvField<T, V> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl<T: PartialEq> PartialEq<T> for EnvField<T> {
+impl<T: PartialEq, V> PartialEq<T> for EnvField<T, V> {
     fn eq(&self, other: &T) -> bool {
         self.0.eq(other)
     }
 }
 
-impl<T: PartialEq<str>> PartialEq<str> for EnvField<T> {
+impl<T: PartialEq<str>, V> PartialEq<str> for EnvField<T, V> {
     fn eq(&self, other: &str) -> bool {
         self.0.eq(other)
     }
 }
 
-impl<T: PartialEq> PartialEq for EnvField<T> {
+impl<T: PartialEq, V> PartialEq for EnvField<T, V> {
     fn eq(&self, other: &Self) -> bool {
         self.0.eq(&other.0)
     }
 }
 
-impl<T: Eq> Eq for EnvField<T> {}
+impl<T: Eq, V> Eq for EnvField<T, V> {}
 
-impl<T: PartialOrd> PartialOrd<T> for EnvField<T> {
+impl<T: PartialOrd, V> PartialOrd<T> for EnvField<T, V> {
     fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(other)
     }
 }
 
-impl<T: PartialOrd> PartialOrd for EnvField<T> {
+impl<T: PartialOrd, V> PartialOrd for EnvField<T, V> {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
         self.0.partial_cmp(&other.0)
     }
 }
 
-impl<T: Ord> Ord for EnvField<T> {
+impl<T: Ord, V> Ord for EnvField<T, V> {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.0.cmp(&other.0)
     }
@@ -647,7 +786,7 @@ impl<T: Ord> Ord for EnvField<T> {
 
 macro_rules! impl_unary_op {
     ($trait:ident, $method:ident) => {
-        impl<T: $trait> $trait for EnvField<T> {
+        impl<T: $trait, V> $trait for EnvField<T, V> {
             type Output = <T as $trait>::Output;
 
             fn $method(self) -> Self::Output {
@@ -659,7 +798,7 @@ macro_rules! impl_unary_op {
 
 macro_rules! impl_binary_op {
     ($trait:ident, $method:ident) => {
-        impl<T: $trait> $trait<T> for EnvField<T> {
+        impl<T: $trait, V> $trait<T> for EnvField<T, V> {
             type Output = <T as $trait>::Output;
 
             fn $method(self, rhs: T) -> Self::Output {
@@ -667,7 +806,7 @@ macro_rules! impl_binary_op {
             }
         }
 
-        impl<T: $trait> $trait for EnvField<T> {
+        impl<T: $trait, V> $trait for EnvField<T, V> {
             type Output = <T as $trait>::Output;
 
             fn $method(self, rhs: Self) -> Self::Output {
@@ -679,13 +818,13 @@ macro_rules! impl_binary_op {
 
 macro_rules! impl_binary_assign_op {
     ($trait:ident, $method:ident) => {
-        impl<T: $trait> $trait<T> for EnvField<T> {
+        impl<T: $trait, V> $trait<T> for EnvField<T, V> {
             fn $method(&mut self, rhs: T) {
                 self.0.$method(rhs);
             }
         }
 
-        impl<T: $trait> $trait for EnvField<T> {
+        impl<T: $trait, V> $trait for EnvField<T, V> {
             fn $method(&mut self, rhs: Self) {
                 self.0.$method(rhs.0);
             }

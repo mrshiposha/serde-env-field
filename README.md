@@ -2,11 +2,13 @@
 ![CI](https://github.com/mrshiposha/serde-env-field/actions/workflows/rust.yml/badge.svg) [![](https://docs.rs/serde-env-field/badge.svg)](https://docs.rs/serde-env-field/) [![](https://img.shields.io/crates/v/serde-env-field.svg)](https://crates.io/crates/serde-env-field) [![](https://img.shields.io/crates/d/serde-env-field.svg)](https://crates.io/crates/serde-env-field)
 
 This crate provides the `EnvField<T>` type capable of deserializing the `T` type
-from a string with environment variables if the `T` implements the `FromStr` trait.
+from a string with environment variables expanded.
 
 During deserialization, the `EnvField` will try to deserialize the data as a string and expand all
 the environment variables. After the expansion, the resulting string will be used
-to construct the `T` type using the `FromStr` trait.
+to construct the `T` value.
+By default, the `EnvField` will construct the `T` value using the `FromStr` trait.
+However, it is possible to make it use the `Deserialize` trait using the [UseDeserialize](https://docs.rs/serde-env-field/latest/serde_env_field/struct.UseDeserialize.html) marker.
 
 If the supplied data was not a string, the `EnvField`
 will attempt to deserialize the `T` type directly from the data.

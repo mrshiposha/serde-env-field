@@ -3,7 +3,7 @@ use std::{assert_eq, env, str::FromStr};
 use derive_more::FromStr;
 use indoc::indoc;
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
-use serde_env_field::EnvField;
+use serde_env_field::{EnvField, UseDeserialize};
 
 fn de_se_de_test<T: Serialize + DeserializeOwned>(
     source_text: &'static str,
@@ -537,6 +537,47 @@ fn test_primitives() {
             nu64 = 4000000000
             nf32 = -114.0
             nf64 = 115.0
+        "#},
+    );
+}
+
+#[test]
+fn test_use_deserialize() {
+    #[derive(Serialize, Deserialize)]
+    struct Test {
+        option: EnvField<Options, UseDeserialize>,
+        n: Option<EnvField<i32, UseDeserialize>>,
+    }
+
+    #[derive(Serialize, Deserialize)]
+    #[serde(rename_all = "kebab-case")]
+    enum Options {
+        AUsefullOption,
+        AnotherCoolOption,
+    }
+
+    de_se_de_test::<Test>(
+        r#"
+            option = "a-usefull-option"
+        "#,
+        |de| {
+            assert!(matches!(*de.option, Options::AUsefullOption));
+        },
+        indoc! {r#"
+            option = "a-usefull-option"
+        "#},
+    );
+
+    env::set_var("OPTION_use_de", "another-cool-option");
+    de_se_de_test::<Test>(
+        r#"
+            option = "$OPTION_use_de"
+        "#,
+        |de| {
+            assert!(matches!(*de.option, Options::AnotherCoolOption));
+        },
+        indoc! {r#"
+            option = "another-cool-option"
         "#},
     );
 }
