@@ -263,34 +263,49 @@ use serde_untagged::{de::Error as UntaggedError, UntaggedEnumVisitor};
 ///
 /// ```
 /// # use serde::{Serialize, Deserialize};
-/// # use serde_env_field::env_field_wrap;
+/// # use serde_env_field::{env_field_wrap, EnvField, UseDeserialize};
 /// #[env_field_wrap]
 /// #[derive(Serialize, Deserialize)]
 /// struct Example {
-///     // Will become `TwoGenerics<EnvField<String>, EnvField<i32>>`
-///     // instead of `EnvField<TwoGenerics<String, i32>>`.
+///     // Will become
+///     //    `Generics<EnvField<String>, EnvField<i32>, EnvField<Variants, UseDeserialize>>`
+///     // instead of
+///     //    `EnvField<Generics<String, i32, EnvField<Variants, UseDeserialize>>>`.
 ///     //
-///     // Note: the `TwoGenerics` don't need to implement the `FromStr` in this case.
+///     // Note:
+///     //  * if a generic is already wrapped into the `EnvField`, it *won't* be wrapped again.
+///     //  * the `Generics` don't need to implement the `FromStr` in this case.
 ///     #[env_field_wrap(generics_only)]
-///     generics: TwoGenerics<String, i32>,
+///     generics: Generics<String, i32, EnvField<Variants, UseDeserialize>>,
 /// }
 ///
 /// #[derive(Serialize, Deserialize)]
-/// struct TwoGenerics<A, B> {
+/// struct Generics<A, B, C> {
 ///     a: A,
 ///     b: B,
+///     c: C,
+/// }
+///
+/// #[derive(Serialize, Deserialize, Debug)]
+/// #[serde(rename_all = "kebab-case")]
+/// enum Variants {
+///     FirstVariant,
+///     SecondVariant,
 /// }
 ///
 /// std::env::set_var("GENERICS_STR", "env string");
 /// std::env::set_var("GENERICS_I32", "517");
+/// std::env::set_var("GENERICS_VARIANT", "first-variant");
 /// let de: Example = toml::from_str(r#"
 ///     [generics]
 ///     a = "$GENERICS_STR"
 ///     b = "$GENERICS_I32"
+///     c = "$GENERICS_VARIANT"
 /// "#).unwrap();
 ///
 /// assert_eq!(&de.generics.a, "env string");
 /// assert_eq!(de.generics.b, 517);
+/// assert!(matches!(*de.generics.c, Variants::FirstVariant));
 ///
 /// ```
 pub use serde_env_field_wrap::env_field_wrap;

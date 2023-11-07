@@ -1,6 +1,6 @@
 [package]
 name = "serde-env-field"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 authors = ["Daniel Shiposha"]
 license = "MIT"
@@ -14,7 +14,7 @@ keywords = ["serde", "environment", "variables", "env", "proc-macro"]
 serde = { version = "1.0", features = ["derive"] }
 serde-untagged = "0.1.1"
 shellexpand = "3.1.0"
-serde-env-field-wrap = "0.1.1"
+serde-env-field-wrap = "0.3.0"
 
 [dev-dependencies]
 derive_more = "0.99.17"

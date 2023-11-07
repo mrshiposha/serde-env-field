@@ -15,7 +15,7 @@ will attempt to deserialize the `T` type directly from the data.
 
 The `EnvField` works nicely with `Option`, `Vec`, and `#[serde(default)]`.
 
-Also, the crate provides the `env_field_wrap` attribute that wraps all the fields of a struct or an enum with the `EnvField` type.
+Also, the crate provides the [env_field_wrap](https://docs.rs/serde-env-field/latest/serde_env_field/attr.env_field_wrap.html) attribute that wraps all the fields of a struct or an enum with the `EnvField` type.
 The attribute also honors the optional and vector fields.
 
 #### `EnvField` Example

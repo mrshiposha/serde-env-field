@@ -630,31 +630,43 @@ fn test_wrap_generics_only() {
     #[derive(Serialize, Deserialize, Debug)]
     struct Test {
         #[env_field_wrap(generics_only)]
-        generics: TwoGenerics<String, i32>,
+        generics: Generics<String, i32, EnvField<Variants, UseDeserialize>>,
     }
 
     #[derive(Serialize, Deserialize, Debug)]
-    struct TwoGenerics<A, B> {
+    struct Generics<A, B, C> {
         a: A,
         b: B,
+        c: C,
+    }
+
+    #[derive(Serialize, Deserialize, Debug)]
+    #[serde(rename_all = "kebab-case")]
+    enum Variants {
+        FirstVariant,
+        SecondVariant,
     }
 
     env::set_var("GENERICS_STR", "env string");
     env::set_var("GENERICS_I32", "517");
+    env::set_var("GENERICS_VARIANT", "first-variant");
     de_se_de_test::<Test>(
         r#"
             [generics]
             a = "$GENERICS_STR"
             b = "$GENERICS_I32"
+            c = "$GENERICS_VARIANT"
         "#,
         |de| {
             assert_eq!(&de.generics.a, "env string");
             assert_eq!(de.generics.b, 517);
+            assert!(matches!(*de.generics.c, Variants::FirstVariant));
         },
         indoc! {r#"
             [generics]
             a = "env string"
             b = 517
+            c = "first-variant"
         "#},
     );
 
