@@ -96,6 +96,21 @@ fn is_type(ty: &syn::Type, ty_paths: &[&str]) -> bool {
     }
 }
 
+fn is_option(ty: &syn::Type) -> bool {
+    is_type(
+        ty,
+        &["Option", "std::option::Option", "core::option::Option"],
+    )
+}
+
+fn is_vec(ty: &syn::Type) -> bool {
+    is_type(ty, &["Vec", "std::vec::Vec", "alloc::vec::Vec"])
+}
+
+fn is_env_field(ty: &syn::Type) -> bool {
+    is_type(ty, &["EnvField", "serde_env_field::EnvField"])
+}
+
 fn wrap_generics_only(ty: &syn::Type) -> TokenStream2 {
     match ty {
         syn::Type::Path(ty) => {
@@ -121,9 +136,13 @@ fn wrap_generics_only(ty: &syn::Type) -> TokenStream2 {
                             .iter()
                             .map(|arg| match arg {
                                 GenericArgument::Type(generic) => {
-                                    quote!(::serde_env_field::EnvField<#generic>)
+                                    if is_env_field(generic) {
+                                        quote!(#generic)
+                                    } else {
+                                        quote!(::serde_env_field::EnvField<#generic>)
+                                    }
                                 }
-                                _ => abort!(angle_args.args, "generics_only: a type is expected"),
+                                non_ty_generic => quote!(#non_ty_generic),
                             })
                             .collect::<Punctuated<_, Token![,]>>();
 
@@ -168,13 +187,9 @@ fn process_fields(fields: impl Iterator<Item = syn::Field>) -> TokenStream2 {
                 Some(WrapAttr::Skip) => quote!(#ty),
                 Some(WrapAttr::GenericsOnly(_)) => wrap_generics_only(&ty),
                 None => {
-                    if is_type(
-                        &ty,
-                        &["Option", "std::option::Option", "core::option::Option"],
-                    ) || is_type(&ty, &["Vec", "std::vec::Vec", "alloc::vec::Vec"])
-                    {
+                    if is_option(&ty) || is_vec(&ty) {
                         wrap_generics_only(&ty)
-                    } else if is_type(&ty, &["EnvField", "serde_env_field::EnvField"]) {
+                    } else if is_env_field(&ty) {
                         quote!(#ty)
                     } else {
                         quote!(::serde_env_field::EnvField<#ty>)
