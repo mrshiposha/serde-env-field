@@ -49,7 +49,7 @@ fn test_wrap_required_fields() {
     de_se_de_test::<Test>(
         r#"
             name = "${NAME_test_required:-Default Entry}"
-            size = "${SIZE:-0}"
+            size = "${SIZE_test_required:-0}"
         "#,
         |de| {
             assert_eq!(&de.name, "Default Entry");
