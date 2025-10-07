@@ -77,7 +77,7 @@
 #![warn(missing_docs)]
 
 use std::{
-    fmt::{self, Debug},
+    fmt::{self, Debug, Display},
     marker::PhantomData,
     ops::*,
     str::FromStr,
@@ -744,6 +744,12 @@ impl<T: Default, V> Default for EnvField<T, V> {
 }
 
 impl<T: Debug, V> Debug for EnvField<T, V> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+impl<T: Display, V> Display for EnvField<T, V> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         self.0.fmt(f)
     }
